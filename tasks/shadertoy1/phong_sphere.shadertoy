@@ -1,0 +1,132 @@
+#define EPS 0.001
+#define MAX_DIST 20.0
+#define MAX_STEPS 50
+#define PI 3.1415
+
+float sdBox(vec3 p, vec3 b)
+{
+  vec3 q = abs(p) - b;
+  return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+}
+
+float ball(vec3 point, float size)
+{
+    return length(point) - size;
+}
+
+float sdf(vec3 point)
+{
+    return ball(point, 1.5);
+    // return sdBox(point, vec3(2.0, 1.0, 1.0));
+}
+
+vec3 debug_sdf(vec3 point)
+{
+    float dist = sdf(point);
+    vec3 color = vec3(abs(dist));
+    if (abs(dist) < EPS)
+        color = vec3(1.0, 0.0, 0.0);
+    return color;
+}
+
+vec3 trace(vec3 from, vec3 dir, out bool hit)
+{
+    vec3 p = from;
+    
+    hit = false;
+    float totalDist = 0.0;
+    for (int step = 0; step < MAX_STEPS; step++)
+    {
+        float dist = sdf(p);
+        if (dist < EPS)
+        {
+            hit = true;
+            break;
+        }
+        
+        totalDist += dist;
+        if (totalDist > MAX_DIST)
+            break;
+        
+        p = p + normalize(dir) * dist;
+    }
+    
+    return p;
+}
+
+vec3 calc_normal(vec3 point)
+{
+    float dsdx = (sdf(point + vec3(EPS, 0.0, 0.0)) - sdf(point - vec3(EPS, 0.0, 0.0))) / EPS;
+    float dsdy = (sdf(point + vec3(0.0, EPS, 0.0)) - sdf(point - vec3(0.0, EPS, 0.0))) / EPS;
+    float dsdz = (sdf(point + vec3(0.0, 0.0, EPS)) - sdf(point - vec3(0.0, 0.0, EPS))) / EPS;
+    
+    
+    return normalize(vec3(dsdx, dsdy, dsdz));
+}
+
+mat2 rotate2d(float theta) {
+  float s = sin(theta), c = cos(theta);
+  return mat2(c, -s, s, c);
+}
+
+mat3 camera(vec3 cameraPos, vec3 lookAtPoint) {
+	vec3 cd = normalize(cameraPos - lookAtPoint);  // camera direction
+	vec3 cr = normalize(cross(vec3(0, 1, 0), cd)); // camera right
+	vec3 cu = normalize(cross(cd, cr));            // camera up
+
+	return mat3(cr, cu, cd);
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
+    vec4 mouse = iMouse;
+    mouse.xy = (mouse.xy / iResolution.xy);
+    
+    vec3 eye = vec3(2.0, 2.0, 5.0);
+    vec3 look_at_point = vec3(0.0, 0.0, 0.0);
+    // Camera rotation with mouse
+    if ( mouse.z > 0.0 )
+    {
+        eye.xz = look_at_point.xz + rotate2d(mix(-PI/2.0, PI/2.0, mouse.x)) * eye.xz;
+        eye.yz = look_at_point.yz + rotate2d(mix(-PI/6.0, PI/2.0, mouse.y)) * eye.yz;
+    }
+    
+    vec3 color = vec3(0.0, 0.0, 0.0);
+    vec3 light_source = vec3(5.0, 3.0, 5.0);
+    
+    const vec3 ambient_color = vec3(0.1, 0.1, 0.1);
+    const vec3 light_color = vec3(1.0, 1.0, 1.0);
+    const vec3 object_color = vec3(0.7, 0.2, 0.1);
+    
+    vec3 dir = camera( eye, look_at_point ) * normalize( vec3( uv.xy, -1.0 ) );
+    bool hit = false;
+    vec3 intersection = trace(eye, dir, hit);
+
+    if (hit)
+    {        
+        // ambient
+        const float ambient_strength = 0.2;
+        vec3 ambient = ambient_strength * light_color;
+        
+        // diffuse
+        vec3 light_dir = normalize(-light_source + intersection);
+        vec3 normal = calc_normal(intersection);
+        
+        float diffuse_strength = max(dot(-light_dir, normal), 0.0);
+        vec3 diffuse = diffuse_strength * light_color;
+        
+        // specular
+        vec3 reflect_dir = reflect(light_dir, normal);  // from intersection to somewhere
+        vec3 view_dir = normalize(-intersection + eye); // from intersection to eye
+        
+        const float specular_strength = 0.5;
+        float specular_amount = pow(max(dot(view_dir, reflect_dir), 0.0), 16.0);
+        vec3 specular = specular_strength * specular_amount * light_color;
+        
+        // result
+        color = (ambient + diffuse + specular) * object_color;
+    }
+
+    fragColor = vec4(color, 1.0);
+}
