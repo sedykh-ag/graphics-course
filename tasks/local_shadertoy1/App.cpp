@@ -75,6 +75,7 @@ App::App()
 
 
   // TODO: Initialize any additional resources you require here!
+  preparePipelines();
 }
 
 App::~App()
@@ -94,6 +95,27 @@ void App::run()
   // We need to wait for the GPU to execute the last frame before destroying
   // all resources and closing the application.
   ETNA_CHECK_VK_RESULT(etna::get_context().getDevice().waitIdle());
+}
+
+void App::preparePipelines()
+{
+  auto& ctx = etna::get_context();
+
+  etna::create_program("toy_compute", {LOCAL_SHADERTOY1_SHADERS_ROOT "toy.comp.spv"});
+
+  // Compute pipeline creation
+  computePipeline = ctx.getPipelineManager().createComputePipeline("toy_compute", {});
+
+  storageImage = ctx.createImage(etna::Image::CreateInfo{
+    .extent = vk::Extent3D{resolution.x, resolution.y, 1},
+    .name = "main_view_depth",
+    .format = vk::Format::eR16G16B16A16Unorm,
+    .imageUsage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
+  });
+
+  defaultSampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "default_sampler"});
+
+  spdlog::info("Prepared pipelines.");
 }
 
 void App::drawFrame()
@@ -138,8 +160,67 @@ void App::drawFrame()
       etna::flush_barriers(currentCmdBuf);
 
 
-      // TODO: Record your commands here!
+      // draw to storage image
+      {
+        auto toyComputeInfo = etna::get_shader_program("toy_compute");
 
+        auto set = etna::create_descriptor_set(
+          toyComputeInfo.getDescriptorLayoutId(0),
+          currentCmdBuf,
+          {
+            etna::Binding{0, storageImage.genBinding(defaultSampler.get(), vk::ImageLayout::eGeneral)},
+          });
+
+        vk::DescriptorSet vkSet = set.getVkSet();
+
+        currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, computePipeline.getVkPipeline());
+        currentCmdBuf.bindDescriptorSets(
+          vk::PipelineBindPoint::eCompute, computePipeline.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
+
+        etna::flush_barriers(currentCmdBuf);
+        currentCmdBuf.dispatch(resolution.x / 32 + 1, resolution.y / 32 + 1, 1);
+      }
+
+      // blit storage image to backbuffer
+      {
+        etna::set_state(
+          currentCmdBuf,
+          storageImage.get(),
+          vk::PipelineStageFlagBits2::eTransfer,
+          vk::AccessFlagBits2::eTransferRead,
+          vk::ImageLayout::eTransferSrcOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
+
+        vk::ImageBlit2 blitRegion{};
+        blitRegion.srcSubresource = vk::ImageSubresourceLayers{
+            vk::ImageAspectFlagBits::eColor, 0, 0, 1
+        };
+        blitRegion.dstSubresource = vk::ImageSubresourceLayers{
+            vk::ImageAspectFlagBits::eColor, 0, 0, 1
+        };
+        blitRegion.srcOffsets = std::array<vk::Offset3D, 2>{
+            vk::Offset3D{0, 0, 0},
+            vk::Offset3D{(int)resolution.x, (int)resolution.y, 1}
+        };
+        blitRegion.dstOffsets = std::array<vk::Offset3D, 2>{
+            vk::Offset3D{0, 0, 0},
+            vk::Offset3D{(int)resolution.x, (int)resolution.y, 1}
+        };
+
+        vk::BlitImageInfo2 blitInfo = {
+          .srcImage = storageImage.get(),
+          .srcImageLayout = vk::ImageLayout::eTransferSrcOptimal,
+          .dstImage = backbuffer,
+          .dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+          .regionCount = 1,
+          .pRegions = &blitRegion,
+          .filter = vk::Filter::eLinear,
+        };
+
+        etna::flush_barriers(currentCmdBuf);
+        currentCmdBuf.blitImage2(blitInfo);
+      }
 
       // At the end of "rendering", we are required to change how the pixels of the
       // swpchain image are laid out in memory to something that is appropriate
