@@ -8,6 +8,8 @@
 
 #include "wsi/OsWindowingManager.hpp"
 
+#include "shaders/UniformParams.h"
+
 
 class App
 {
@@ -19,9 +21,10 @@ public:
 
 private:
   void drawFrame();
-  void preparePipelines();
+  void prepareResources();
   void processInput();
   void reloadShaders();
+  void update();
 
 private:
   OsWindowingManager windowing;
@@ -34,7 +37,14 @@ private:
 
   etna::Image storageImage;
   etna::Sampler defaultSampler;
+  etna::Buffer uniformBufferObject;
 
   std::unique_ptr<etna::Window> vkWindow;
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;
+
+  UniformParams uniformParams{
+    .iTime = 0.0f,
+    .iResolution = {0, 0},
+    .iMouse = {0.0f, 0.0f, 0.0f, 0.0f},
+  };
 };

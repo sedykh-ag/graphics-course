@@ -75,7 +75,7 @@ App::App()
 
 
   // TODO: Initialize any additional resources you require here!
-  preparePipelines();
+  prepareResources();
 }
 
 App::~App()
@@ -91,6 +91,8 @@ void App::run()
 
     processInput();
 
+    update();
+
     drawFrame();
   }
 
@@ -99,13 +101,53 @@ void App::run()
   ETNA_CHECK_VK_RESULT(etna::get_context().getDevice().waitIdle());
 }
 
-void App::preparePipelines()
+void App::update()
+{
+  uniformParams.iResolution = osWindow->getResolution();
+  // iMouse is updated in processInput...
+  uniformParams.iTime = static_cast<float>(windowing.getTime());
+
+  std::memcpy(uniformBufferObject.data(), &uniformParams, sizeof(UniformParams));
+}
+
+void App::processInput()
+{
+  // keyboard
+  if (osWindow->keyboard[KeyboardKey::kEscape] == ButtonState::Falling)
+    osWindow->askToClose();
+
+  if (osWindow->keyboard[KeyboardKey::kB] == ButtonState::Falling)
+    reloadShaders();
+
+  // mouse
+  if (osWindow->mouse[MouseButton::mb1] == ButtonState::Rising)  // button just pressed
+  {
+    uniformParams.iMouse.z = osWindow->mouse.freePos.x;
+    uniformParams.iMouse.w = osWindow->mouse.freePos.y; // has "+" sign only on the moment of click
+  }
+
+  if (osWindow->mouse[MouseButton::mb1] == ButtonState::High)   // button held
+  {
+    uniformParams.iMouse.x = osWindow->mouse.freePos.x;
+    uniformParams.iMouse.y = osWindow->mouse.freePos.y;
+  }
+
+  if (osWindow->mouse[MouseButton::mb1] == ButtonState::Falling) // button just released
+  {
+    uniformParams.iMouse.z = -glm::abs(uniformParams.iMouse.z);
+  }
+
+  if (osWindow->mouse[MouseButton::mb1] != ButtonState::Rising) // button NOT just pressed
+  {
+    uniformParams.iMouse.w = -glm::abs(uniformParams.iMouse.w);
+  }
+}
+
+void App::prepareResources()
 {
   auto& ctx = etna::get_context();
 
   etna::create_program("toy_compute", {LOCAL_SHADERTOY1_SHADERS_ROOT "toy.comp.spv"});
-
-  // Compute pipeline creation
   computePipeline = ctx.getPipelineManager().createComputePipeline("toy_compute", {});
 
   storageImage = ctx.createImage(etna::Image::CreateInfo{
@@ -117,16 +159,16 @@ void App::preparePipelines()
 
   defaultSampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "default_sampler"});
 
-  spdlog::info("Prepared pipelines.");
-}
+  uniformBufferObject = ctx.createBuffer(etna::Buffer::CreateInfo{
+    .size = sizeof(UniformParams),
+    .bufferUsage = vk::BufferUsageFlagBits::eUniformBuffer,
+    .memoryUsage = VMA_MEMORY_USAGE_CPU_ONLY,
+    .name = "uniformBufferObject",
+  });
 
-void App::processInput()
-{
-    if (osWindow->keyboard[KeyboardKey::kEscape] == ButtonState::Falling)
-      osWindow->askToClose();
+  uniformBufferObject.map();
 
-  if (osWindow->keyboard[KeyboardKey::kB] == ButtonState::Falling)
-    reloadShaders();
+  spdlog::info("Prepared resources.");
 }
 
 void App::reloadShaders()
@@ -193,7 +235,8 @@ void App::drawFrame()
           toyComputeInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
           {
-            etna::Binding{0, storageImage.genBinding(defaultSampler.get(), vk::ImageLayout::eGeneral)},
+            etna::Binding{0, uniformBufferObject.genBinding()},
+            etna::Binding{1, storageImage.genBinding(defaultSampler.get(), vk::ImageLayout::eGeneral)},
           });
 
         vk::DescriptorSet vkSet = set.getVkSet();
