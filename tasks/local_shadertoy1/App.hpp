@@ -20,6 +20,8 @@ public:
 private:
   void drawFrame();
   void preparePipelines();
+  void processInput();
+  void reloadShaders();
 
 private:
   OsWindowingManager windowing;

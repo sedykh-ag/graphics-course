@@ -106,7 +106,10 @@ void main()
 
   const vec3 ambient_color = vec3(0.1, 0.1, 0.1);
   const vec3 light_color = vec3(1.0, 1.0, 1.0);
+
+  // for testing shader hot-reloading
   const vec3 object_color = vec3(0.99, 0.05, 0.05);
+  // const vec3 object_color = vec3(0.05, 0.99, 0.05);
 
   vec3 dir = camera( eye, look_at_point ) * normalize( vec3( uv.xy, -1.0 ) );
   bool hit = false;
