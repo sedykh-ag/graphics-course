@@ -8,6 +8,7 @@ layout(std140, binding = 0, set = 0) uniform AppData
   UniformParams params;
 };
 
+layout(binding = 1) uniform sampler2D proceduralTexture;
 
 layout (location = 0) out vec4 fragColor;
 
@@ -115,7 +116,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     const vec3 ambient_color = vec3(0.01, 0.01, 0.01);
     const vec3 light_color = vec3(1.0, 1.0, 1.0);
-    const vec3 object_color = vec3(0.9, 0.05, 0.05);
+    // const vec3 object_color = vec3(0.9, 0.05, 0.05);
+    vec3 object_color = texture(proceduralTexture, uv).rgb;
 
     vec3 dir = camera( eye, look_at_point ) * normalize( vec3( uv.xy, -1.0 ) );
     bool hit = false;

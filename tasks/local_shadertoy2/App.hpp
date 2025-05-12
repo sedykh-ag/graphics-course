@@ -35,7 +35,10 @@ private:
   bool useVsync;
 
   etna::ComputePipeline computePipeline;
-  etna::GraphicsPipeline graphicsPipeline;
+  etna::GraphicsPipeline mainPipeline;
+  etna::GraphicsPipeline proceduralPipeline;
+
+  etna::Image proceduralImage;
 
   etna::Sampler defaultSampler;
 

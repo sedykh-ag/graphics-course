@@ -149,13 +149,29 @@ void App::prepareResources()
 {
   auto& ctx = etna::get_context();
 
-  etna::create_program("toy_graphics", {LOCAL_SHADERTOY2_SHADERS_ROOT "toy.vert.spv",
-    LOCAL_SHADERTOY2_SHADERS_ROOT "toy.frag.spv"});
+  etna::create_program("toy_graphics_main",
+    {LOCAL_SHADERTOY2_SHADERS_ROOT "quad.vert.spv", LOCAL_SHADERTOY2_SHADERS_ROOT "main.frag.spv"});
 
-  graphicsPipeline = ctx.getPipelineManager().createGraphicsPipeline("toy_graphics", {
+  etna::create_program("toy_graphics_procedural",
+    {LOCAL_SHADERTOY2_SHADERS_ROOT "quad.vert.spv", LOCAL_SHADERTOY2_SHADERS_ROOT "procedural.frag.spv"});
+
+  mainPipeline = ctx.getPipelineManager().createGraphicsPipeline("toy_graphics_main", {
     .fragmentShaderOutput{
       .colorAttachmentFormats = {vk::Format::eB8G8R8A8Srgb}
     }
+  });
+
+  proceduralPipeline = ctx.getPipelineManager().createGraphicsPipeline("toy_graphics_procedural", {
+    .fragmentShaderOutput{
+      .colorAttachmentFormats = {vk::Format::eR8G8B8A8Unorm}
+    }
+  });
+
+  proceduralImage = ctx.createImage({
+    .extent = vk::Extent3D{resolution.x, resolution.y, 1},
+    .name = "procedural_image",
+    .format = vk::Format::eR8G8B8A8Unorm,
+    .imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
   });
 
   defaultSampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "default_sampler"});
@@ -205,30 +221,57 @@ void App::drawFrame()
 
     ETNA_CHECK_VK_RESULT(currentCmdBuf.begin(vk::CommandBufferBeginInfo{}));
     {
-      // First of all, we need to "initialize" th "backbuffer", aka the current swapchain
-      // image, into a state that is appropriate for us working with it. The initial state
-      // is considered to be "undefined" (aka "I contain trash memory"), by the way.
-      etna::set_state(
-        currentCmdBuf,
-        backbuffer,
-        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        vk::AccessFlagBits2::eColorAttachmentWrite,
-        vk::ImageLayout::eColorAttachmentOptimal,
-        vk::ImageAspectFlagBits::eColor);
-      // The set_state doesn't actually record any commands, they are deferred to
-      // the moment you call flush_barriers.
-      // As with set_state, Etna sometimes flushes on it's own.
-      // Usually, flushes should be placed before "action", i.e. compute dispatches
-      // and blit/copy operations.
+
       etna::flush_barriers(currentCmdBuf);
 
+      // procedural shader
       {
-        auto toyGraphicsInfo = etna::get_shader_program("toy_graphics");
+        auto toyGraphicsProceduralInfo = etna::get_shader_program("toy_graphics_procedural");
 
         auto set = etna::create_descriptor_set(
-          toyGraphicsInfo.getDescriptorLayoutId(0),
+          toyGraphicsProceduralInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
           {etna::Binding{0, uniformBufferObject.genBinding()}});
+
+        etna::RenderTargetState renderTargets(
+          currentCmdBuf,
+          {{0, 0}, {resolution.x, resolution.y}},
+          {{.image = proceduralImage.get(), .view = proceduralImage.getView({})}},
+          {});
+
+        currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, proceduralPipeline.getVkPipeline());
+        currentCmdBuf.bindDescriptorSets(
+          vk::PipelineBindPoint::eGraphics,
+          proceduralPipeline.getVkPipelineLayout(),
+          0,
+          {set.getVkSet()},
+          {});
+
+        etna::set_state(
+          currentCmdBuf,
+          proceduralImage.get(),
+          vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+          vk::AccessFlagBits2::eColorAttachmentWrite,
+          vk::ImageLayout::eColorAttachmentOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
+
+        etna::flush_barriers(currentCmdBuf);
+
+        currentCmdBuf.draw(3, 1, 0, 0);
+      }
+
+      // main shader
+      {
+        auto toyGraphicsMainInfo = etna::get_shader_program("toy_graphics_main");
+
+        auto set = etna::create_descriptor_set(
+          toyGraphicsMainInfo.getDescriptorLayoutId(0),
+          currentCmdBuf,
+          {
+            etna::Binding{0, uniformBufferObject.genBinding()},
+            etna::Binding{1, proceduralImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)}
+          });
 
         etna::RenderTargetState renderTargets(
           currentCmdBuf,
@@ -236,13 +279,33 @@ void App::drawFrame()
           {{.image = backbuffer, .view = backbufferView}},
           {});
 
-        currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline.getVkPipeline());
+        currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, mainPipeline.getVkPipeline());
         currentCmdBuf.bindDescriptorSets(
           vk::PipelineBindPoint::eGraphics,
-          graphicsPipeline.getVkPipelineLayout(),
+          mainPipeline.getVkPipelineLayout(),
           0,
           {set.getVkSet()},
           {});
+
+        etna::set_state(
+          currentCmdBuf,
+          proceduralImage.get(),
+          vk::PipelineStageFlagBits2::eFragmentShader,
+          vk::AccessFlagBits2::eShaderSampledRead,
+          vk::ImageLayout::eShaderReadOnlyOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
+
+        etna::set_state(
+          currentCmdBuf,
+          backbuffer,
+          vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+          vk::AccessFlagBits2::eColorAttachmentWrite,
+          vk::ImageLayout::eColorAttachmentOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
+
+        etna::flush_barriers(currentCmdBuf);
 
         currentCmdBuf.draw(3, 1, 0, 0);
       }
