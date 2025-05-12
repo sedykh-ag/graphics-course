@@ -6,6 +6,7 @@
 #include <etna/Image.hpp>
 #include <etna/Sampler.hpp>
 
+#include "etna/GraphicsPipeline.hpp"
 #include "wsi/OsWindowingManager.hpp"
 
 #include "shaders/UniformParams.h"
@@ -34,8 +35,8 @@ private:
   bool useVsync;
 
   etna::ComputePipeline computePipeline;
+  etna::GraphicsPipeline graphicsPipeline;
 
-  etna::Image storageImage;
   etna::Sampler defaultSampler;
   etna::Buffer uniformBufferObject;
 
