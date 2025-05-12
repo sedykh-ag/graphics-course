@@ -1,4 +1,5 @@
 #include "App.hpp"
+#include "etna/DescriptorSet.hpp"
 #include "etna/RenderTargetStates.hpp"
 
 #include <etna/Etna.hpp>
@@ -222,13 +223,12 @@ void App::drawFrame()
       etna::flush_barriers(currentCmdBuf);
 
       {
-        // auto toyGraphicsInfo = etna::get_shader_program("toy_graphics");
+        auto toyGraphicsInfo = etna::get_shader_program("toy_graphics");
 
-        // auto set = etna::create_descriptor_set(
-        //   toyGraphicsInfo.getDescriptorLayoutId(0),
-        //   currentCmdBuf,
-        //   {});
-
+        auto set = etna::create_descriptor_set(
+          toyGraphicsInfo.getDescriptorLayoutId(0),
+          currentCmdBuf,
+          {etna::Binding{0, uniformBufferObject.genBinding()}});
 
         etna::RenderTargetState renderTargets(
           currentCmdBuf,
@@ -237,12 +237,12 @@ void App::drawFrame()
           {});
 
         currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline.getVkPipeline());
-        // currentCmdBuf.bindDescriptorSets(
-        //   vk::PipelineBindPoint::eGraphics,
-        //   graphicsPipeline.getVkPipelineLayout(),
-        //   0,
-        //   {set.getVkSet()},
-        //   {});
+        currentCmdBuf.bindDescriptorSets(
+          vk::PipelineBindPoint::eGraphics,
+          graphicsPipeline.getVkPipelineLayout(),
+          0,
+          {set.getVkSet()},
+          {});
 
         currentCmdBuf.draw(3, 1, 0, 0);
       }

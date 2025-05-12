@@ -38,11 +38,11 @@ private:
   etna::GraphicsPipeline graphicsPipeline;
 
   etna::Sampler defaultSampler;
-  etna::Buffer uniformBufferObject;
 
   std::unique_ptr<etna::Window> vkWindow;
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;
 
+  etna::Buffer uniformBufferObject;
   UniformParams uniformParams{
     .iTime = 0.0f,
     .iResolution = {0, 0},
