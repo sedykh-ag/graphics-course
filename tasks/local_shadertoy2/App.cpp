@@ -153,7 +153,7 @@ void App::prepareResources()
   storageImage = ctx.createImage(etna::Image::CreateInfo{
     .extent = vk::Extent3D{resolution.x, resolution.y, 1},
     .name = "main_view_depth",
-    .format = vk::Format::eR16G16B16A16Unorm,
+    .format = vk::Format::eR8G8B8A8Unorm,
     .imageUsage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
   });
 
@@ -174,7 +174,7 @@ void App::prepareResources()
 void App::reloadShaders()
 {
   const int retval = std::system("cd " GRAPHICS_COURSE_ROOT "/build"
-                                  " && cmake --build . --target local_shadertoy1_shaders");
+                                  " && cmake --build . --target local_shadertoy2_shaders");
   if (retval != 0)
     spdlog::warn("Shader recompilation returned a non-zero return code!");
   else
@@ -236,7 +236,7 @@ void App::drawFrame()
           currentCmdBuf,
           {
             etna::Binding{0, uniformBufferObject.genBinding()},
-            etna::Binding{1, storageImage.genBinding(defaultSampler.get(), vk::ImageLayout::eGeneral)},
+            etna::Binding{1, storageImage.genBinding({}, vk::ImageLayout::eGeneral)},
           });
 
         vk::DescriptorSet vkSet = set.getVkSet();
@@ -283,7 +283,7 @@ void App::drawFrame()
           .dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
           .regionCount = 1,
           .pRegions = &blitRegion,
-          .filter = vk::Filter::eLinear,
+          .filter = vk::Filter::eNearest,
         };
 
         etna::flush_barriers(currentCmdBuf);
