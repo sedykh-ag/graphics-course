@@ -14,6 +14,8 @@ layout(location = 0) out vec4 fragColor;
 void main()
 {
   vec2 uv = gl_FragCoord.xy / params.iResolution.xy;
+  uv.x -= params.iTime * 0.5;
+
   vec3 col = texture(textureImage, uv).rgb;
 
   fragColor = vec4(col, 1.0);

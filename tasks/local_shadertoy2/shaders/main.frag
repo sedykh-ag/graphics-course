@@ -93,12 +93,17 @@ mat3 camera(vec3 cameraPos, vec3 lookAtPoint) {
 	return mat3(cr, cu, cd);
 }
 
+vec3 get_triplanar_weights (in vec3 n)
+{
+    vec3 w = abs ( n );
+    w *= w;
+    return w / ( w.x + w.y + w.z );
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 uv = (fragCoord - 0.5 * params.iResolution.xy) / params.iResolution.y;
-
-    uv.y = -uv.y; // shadertoy has different coordinate system
-
+    uv.y = -uv.y;
     vec4 mouse = params.iMouse;
     mouse.xy = (mouse.xy / params.iResolution.xy);
 
@@ -114,24 +119,37 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 color = vec3(0.0, 0.0, 0.0);
     vec3 light_source = vec3(5.0, 3.0, 5.0);
 
-    const vec3 ambient_color = vec3(0.01, 0.01, 0.01);
+    const vec3 ambient_color = vec3(0.1, 0.1, 0.1);
     const vec3 light_color = vec3(1.0, 1.0, 1.0);
-    // const vec3 object_color = vec3(0.9, 0.05, 0.05);
-    vec3 object_color = texture(proceduralTexture, uv).rgb;
 
     vec3 dir = camera( eye, look_at_point ) * normalize( vec3( uv.xy, -1.0 ) );
+
+    // skybox
+    // color = texture(iChannel0, dir).rgb;
+
     bool hit = false;
     vec3 intersection = trace(eye, dir, hit);
 
     if (hit)
     {
+        // triplanar mapping
+        vec3 normal = calc_normal(intersection);
+        vec3 weights = get_triplanar_weights(normal);
+
+        vec3 cx = texture(proceduralTexture, intersection.yz).rgb;
+        vec3 cy = texture(proceduralTexture, intersection.zx).rgb;
+        vec3 cz = texture(proceduralTexture, intersection.xy).rgb;
+
+        vec3 triplanar_mapping = weights.x * cx + weights.y * cy + weights.z * cz;
+
+        vec3 object_color = triplanar_mapping;
+
         // ambient
         const float ambient_strength = 0.2;
         vec3 ambient = ambient_strength * light_color;
 
         // diffuse
         vec3 light_dir = normalize(-light_source + intersection);
-        vec3 normal = calc_normal(intersection);
 
         float diffuse_strength = max(dot(-light_dir, normal), 0.0);
         vec3 diffuse = diffuse_strength * light_color;
