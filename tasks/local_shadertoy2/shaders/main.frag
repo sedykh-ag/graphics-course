@@ -9,6 +9,7 @@ layout(std140, binding = 0, set = 0) uniform AppData
 };
 
 layout(binding = 1) uniform sampler2D proceduralTexture;
+layout(binding = 2) uniform samplerCube cubemapTexture;
 
 layout (location = 0) out vec4 fragColor;
 
@@ -32,8 +33,8 @@ float ball(vec3 point, float size)
 
 float sdf(vec3 point)
 {
-    return ball(point, 1.5);
-    // return sdBox(point, vec3(2.0, 1.0, 1.0));
+    // return ball(point, 1.5);
+    return sdBox(point, vec3(2.0, 1.0, 1.0));
 }
 
 vec3 debug_sdf(vec3 point)
@@ -125,7 +126,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 dir = camera( eye, look_at_point ) * normalize( vec3( uv.xy, -1.0 ) );
 
     // skybox
-    // color = texture(iChannel0, dir).rgb;
+    color = texture(cubemapTexture, dir).rgb;
 
     bool hit = false;
     vec3 intersection = trace(eye, dir, hit);

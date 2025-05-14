@@ -1,3 +1,7 @@
+#include <cassert>
+#include <optional>
+#include <string>
+
 #include "App.hpp"
 #include "etna/BlockingTransferHelper.hpp"
 #include "etna/DescriptorSet.hpp"
@@ -8,6 +12,8 @@
 #include <etna/GlobalContext.hpp>
 #include <etna/PipelineManager.hpp>
 
+#include "etna/Sampler.hpp"
+#include "spdlog/spdlog.h"
 #include "stb_image.h"
 
 App::App()
@@ -115,20 +121,6 @@ void App::update()
   std::memcpy(uniformBufferObject.data(), &uniformParams, sizeof(UniformParams));
 }
 
-void App::loadTextures()
-{
-
-  // spdlog::info(TEXTURES_ROOT "test_tex_1.png");
-
-  int height = textureResolution.x, width = textureResolution.y, depth = 1;
-
-  unsigned char *data = stbi_load(TEXTURES_ROOT "test_tex_1.png", &height, &width, &depth, STBI_rgb_alpha);
-
-
-
-  stbi_image_free(data);
-}
-
 void App::processInput()
 {
   // keyboard
@@ -222,9 +214,7 @@ void App::prepareResources()
       .imageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst
     });
 
-
     etna::BlockingTransferHelper transferHelper{{static_cast<uint32_t>(imageSize)}};
-
 
     etna::OneShotCmdMgr cmdManager = etna::OneShotCmdMgr{{
       .device = ctx.getDevice(),
@@ -241,6 +231,60 @@ void App::prepareResources()
     );
 
     stbi_image_free(rawData);
+
+    spdlog::info("Prepared test texture.");
+  }
+
+  // skybox texture
+  {
+    const std::string faces[6] = {"right", "left", "top", "bottom", "front", "back"};
+
+    int width, height, channels;
+    stbi_info(TEXTURES_ROOT "skybox/back.jpg", &width, &height, &channels);
+    int faceSize = width * height * 4; // 4 because STBI_rgb_alpha is enforced when loading
+
+    skyboxImage = ctx.createImage({
+      .extent = vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
+      .name = "skybox",
+      .format = vk::Format::eR8G8B8A8Srgb,
+      .imageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
+      .layers = 6,
+      .flags = vk::ImageCreateFlagBits::eCubeCompatible
+    });
+
+    etna::BlockingTransferHelper transferHelper{{static_cast<uint32_t>(faceSize)}};
+
+    etna::OneShotCmdMgr cmdManager = etna::OneShotCmdMgr{{
+      .device = ctx.getDevice(),
+      .submitQueue = ctx.getQueue(),
+      .queueFamily = ctx.getQueueFamilyIdx()
+    }};
+
+    for (int face = 0; face < 6; face++)
+    {
+      std::string path = TEXTURES_ROOT "skybox/" + faces[face] + ".jpg";
+
+      {
+        int w, h, n;
+        stbi_info(path.c_str(), &w, &h, &n);
+        assert(w == width && h == height && n == channels); // should be the same for every face
+      }
+
+      unsigned char *rawData = stbi_load(path.c_str(), &height, &width, &channels, STBI_rgb_alpha);
+      std::span<std::byte const> data(reinterpret_cast<std::byte*>(rawData), faceSize);
+
+      transferHelper.uploadImage(
+        cmdManager,
+        skyboxImage,
+        0,
+        face,
+        data
+      );
+
+      stbi_image_free(rawData);
+    }
+
+    spdlog::info("Prepared skybox cubemap.");
   }
 
   spdlog::info("Prepared resources.");
@@ -339,7 +383,14 @@ void App::drawFrame()
           currentCmdBuf,
           {
             etna::Binding{0, uniformBufferObject.genBinding()},
-            etna::Binding{1, proceduralImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)}
+            etna::Binding{1, proceduralImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)},
+            etna::Binding{
+              2,
+              skyboxImage.genBinding(
+                defaultSampler.get(),
+                vk::ImageLayout::eShaderReadOnlyOptimal,
+                etna::Image::ViewParams{0, vk::RemainingMipLevels, 0, 6, std::nullopt, vk::ImageViewType::eCube}
+              )}
           });
 
         etna::RenderTargetState renderTargets(

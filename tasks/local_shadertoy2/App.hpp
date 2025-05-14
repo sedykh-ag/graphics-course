@@ -42,7 +42,7 @@ private:
   etna::Image proceduralImage;
 
   etna::Image textureImage;
-  glm::uvec2 textureResolution{454, 454};
+  etna::Image skyboxImage;
 
   etna::Sampler defaultSampler;
 
