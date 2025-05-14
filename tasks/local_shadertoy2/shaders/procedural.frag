@@ -7,9 +7,14 @@ layout(std140, binding = 0, set = 0) uniform AppData
   UniformParams params;
 };
 
+layout(binding = 1) uniform sampler2D textureImage;
+
 layout(location = 0) out vec4 fragColor;
 
 void main()
 {
-  fragColor = vec4(1.0, 0.0, 1.0, 1.0);
+  vec2 uv = gl_FragCoord.xy / params.iResolution.xy;
+  vec3 col = texture(textureImage, uv).rgb;
+
+  fragColor = vec4(col, 1.0);
 }

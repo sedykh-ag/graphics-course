@@ -1,11 +1,14 @@
 #include "App.hpp"
+#include "etna/BlockingTransferHelper.hpp"
 #include "etna/DescriptorSet.hpp"
+#include "etna/OneShotCmdMgr.hpp"
 #include "etna/RenderTargetStates.hpp"
 
 #include <etna/Etna.hpp>
 #include <etna/GlobalContext.hpp>
 #include <etna/PipelineManager.hpp>
 
+#include "stb_image.h"
 
 App::App()
   : resolution{1280, 720}
@@ -112,6 +115,20 @@ void App::update()
   std::memcpy(uniformBufferObject.data(), &uniformParams, sizeof(UniformParams));
 }
 
+void App::loadTextures()
+{
+
+  // spdlog::info(TEXTURES_ROOT "test_tex_1.png");
+
+  int height = textureResolution.x, width = textureResolution.y, depth = 1;
+
+  unsigned char *data = stbi_load(TEXTURES_ROOT "test_tex_1.png", &height, &width, &depth, STBI_rgb_alpha);
+
+
+
+  stbi_image_free(data);
+}
+
 void App::processInput()
 {
   // keyboard
@@ -174,7 +191,11 @@ void App::prepareResources()
     .imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
   });
 
-  defaultSampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "default_sampler"});
+  defaultSampler = etna::Sampler(etna::Sampler::CreateInfo{
+    .filter = vk::Filter::eLinear,
+    .addressMode = vk::SamplerAddressMode::eRepeat,
+    .name = "default_sampler"
+  });
 
   uniformBufferObject = ctx.createBuffer(etna::Buffer::CreateInfo{
     .size = sizeof(UniformParams),
@@ -184,6 +205,43 @@ void App::prepareResources()
   });
 
   uniformBufferObject.map();
+
+  // texture
+  {
+    int width, height, channels;
+    stbi_info(TEXTURES_ROOT "test_tex_1.png", &width, &height, &channels);
+
+    unsigned char *rawData = stbi_load(TEXTURES_ROOT "test_tex_1.png", &height, &width, &channels, STBI_rgb_alpha);
+    int imageSize = width * height * 4; // 4 because STBI_rgb_alpha is enforced when loading
+    std::span<std::byte const> data(reinterpret_cast<std::byte*>(rawData), imageSize);
+
+    textureImage = ctx.createImage({
+      .extent = vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
+      .name = "texture_image",
+      .format = vk::Format::eR8G8B8A8Srgb,
+      .imageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst
+    });
+
+
+    etna::BlockingTransferHelper transferHelper{{static_cast<uint32_t>(imageSize)}};
+
+
+    etna::OneShotCmdMgr cmdManager = etna::OneShotCmdMgr{{
+      .device = ctx.getDevice(),
+      .submitQueue = ctx.getQueue(),
+      .queueFamily = ctx.getQueueFamilyIdx()
+    }};
+
+    transferHelper.uploadImage(
+      cmdManager,
+      textureImage,
+      0,
+      0,
+      data
+    );
+
+    stbi_image_free(rawData);
+  }
 
   spdlog::info("Prepared resources.");
 }
@@ -231,7 +289,9 @@ void App::drawFrame()
         auto set = etna::create_descriptor_set(
           toyGraphicsProceduralInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
-          {etna::Binding{0, uniformBufferObject.genBinding()}});
+          {
+            etna::Binding{0, uniformBufferObject.genBinding()},
+            etna::Binding{1, textureImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)}});
 
         etna::RenderTargetState renderTargets(
           currentCmdBuf,
@@ -246,6 +306,15 @@ void App::drawFrame()
           0,
           {set.getVkSet()},
           {});
+
+        etna::set_state(
+          currentCmdBuf,
+          textureImage.get(),
+          vk::PipelineStageFlagBits2::eFragmentShader,
+          vk::AccessFlagBits2::eShaderSampledRead,
+          vk::ImageLayout::eShaderReadOnlyOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
 
         etna::set_state(
           currentCmdBuf,

@@ -22,6 +22,7 @@ public:
 
 private:
   void drawFrame();
+  void loadTextures();
   void prepareResources();
   void processInput();
   void reloadShaders();
@@ -39,6 +40,9 @@ private:
   etna::GraphicsPipeline proceduralPipeline;
 
   etna::Image proceduralImage;
+
+  etna::Image textureImage;
+  glm::uvec2 textureResolution{454, 454};
 
   etna::Sampler defaultSampler;
 
