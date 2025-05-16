@@ -42,9 +42,12 @@ private:
   etna::Image proceduralImage;
 
   etna::Image textureImage;
+  uint32_t textureMipLevels = 1;
+
   etna::Image skyboxImage;
 
   etna::Sampler defaultSampler;
+  etna::Sampler textureSampler;
 
   std::unique_ptr<etna::Window> vkWindow;
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;

@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <optional>
 #include <string>
@@ -201,17 +202,20 @@ void App::prepareResources()
   // texture
   {
     int width, height, channels;
-    stbi_info(TEXTURES_ROOT "test_tex_1.png", &width, &height, &channels);
+    stbi_info(TEXTURES_ROOT "wood.png", &width, &height, &channels);
 
-    unsigned char *rawData = stbi_load(TEXTURES_ROOT "test_tex_1.png", &height, &width, &channels, STBI_rgb_alpha);
+    unsigned char *rawData = stbi_load(TEXTURES_ROOT "wood.png", &height, &width, &channels, STBI_rgb_alpha);
     int imageSize = width * height * 4; // 4 because STBI_rgb_alpha is enforced when loading
     std::span<std::byte const> data(reinterpret_cast<std::byte*>(rawData), imageSize);
+
+    textureMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height))) + 1);
 
     textureImage = ctx.createImage({
       .extent = vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
       .name = "texture_image",
       .format = vk::Format::eR8G8B8A8Srgb,
-      .imageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst
+      .imageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
+      .mipLevels = textureMipLevels
     });
 
     etna::BlockingTransferHelper transferHelper{{static_cast<uint32_t>(imageSize)}};
@@ -232,7 +236,70 @@ void App::prepareResources()
 
     stbi_image_free(rawData);
 
-    spdlog::info("Prepared test texture.");
+    /* generate mip levels */
+    vk::CommandBuffer cmdBuf = cmdManager.start();
+
+    ETNA_CHECK_VK_RESULT(cmdBuf.begin(vk::CommandBufferBeginInfo{}));
+
+    int mipWidth = width;
+    int mipHeight = height;
+    // start from 1 cause mip=0 already filled
+    for (uint32_t mip = 1; mip < textureMipLevels; mip++)
+    {
+      vk::ImageBlit blit{
+        .srcSubresource = {
+          .aspectMask = vk::ImageAspectFlagBits::eColor,
+          .mipLevel = mip - 1,
+          .baseArrayLayer = 0,
+          .layerCount = 1
+        },
+        .srcOffsets = std::array<vk::Offset3D, 2>{
+          vk::Offset3D{0, 0, 0},
+          vk::Offset3D{mipWidth, mipHeight, 1}
+        },
+        .dstSubresource = {
+          .aspectMask = vk::ImageAspectFlagBits::eColor,
+          .mipLevel = mip,
+          .baseArrayLayer = 0,
+          .layerCount = 1
+        },
+        .dstOffsets = std::array<vk::Offset3D, 2>{
+          vk::Offset3D{0, 0, 0},
+          vk::Offset3D{mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1}
+        }
+      };
+
+      etna::set_state(
+        cmdBuf,
+        textureImage.get(),
+        vk::PipelineStageFlagBits2::eTransfer,
+        vk::AccessFlagBits2::eTransferRead,
+        vk::ImageLayout::eGeneral,
+        vk::ImageAspectFlagBits::eColor
+      );
+
+      etna::flush_barriers(cmdBuf);
+
+      cmdBuf.blitImage(
+        textureImage.get(),
+        vk::ImageLayout::eGeneral,
+        textureImage.get(),
+        vk::ImageLayout::eGeneral,
+        1,
+        &blit,
+        vk::Filter::eLinear
+      );
+
+      if (mipWidth > 1) mipWidth /= 2;
+      if (mipHeight > 1) mipHeight /= 2;
+      spdlog::info("Generated mip {} of {}x{}", mip, mipWidth, mipHeight);
+    }
+
+    ETNA_CHECK_VK_RESULT(cmdBuf.end());
+
+    cmdManager.submitAndWait(std::move(cmdBuf));
+
+    spdlog::info("Generated {} mip levels", textureMipLevels);
   }
 
   // skybox texture
@@ -287,6 +354,19 @@ void App::prepareResources()
     spdlog::info("Prepared skybox cubemap.");
   }
 
+  float minLod = static_cast<float>(textureMipLevels / 2); // for testing purposes
+  float maxLod = static_cast<float>(textureMipLevels);
+
+  textureSampler = etna::Sampler(etna::Sampler::CreateInfo{
+    .filter = vk::Filter::eLinear,
+    .addressMode = vk::SamplerAddressMode::eRepeat,
+    .name = "texture_sampler",
+    .minLod = minLod,
+    .maxLod = maxLod
+  });
+
+  spdlog::info("Created sampler with .minLod = {} and .maxLod = {}", minLod, maxLod);
+
   spdlog::info("Prepared resources.");
 }
 
@@ -334,8 +414,8 @@ void App::drawFrame()
           toyGraphicsProceduralInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
           {
-            etna::Binding{0, uniformBufferObject.genBinding()},
-            etna::Binding{1, textureImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)}});
+            etna::Binding{0, uniformBufferObject.genBinding()}
+          });
 
         etna::RenderTargetState renderTargets(
           currentCmdBuf,
@@ -350,15 +430,6 @@ void App::drawFrame()
           0,
           {set.getVkSet()},
           {});
-
-        etna::set_state(
-          currentCmdBuf,
-          textureImage.get(),
-          vk::PipelineStageFlagBits2::eFragmentShader,
-          vk::AccessFlagBits2::eShaderSampledRead,
-          vk::ImageLayout::eShaderReadOnlyOptimal,
-          vk::ImageAspectFlagBits::eColor
-        );
 
         etna::set_state(
           currentCmdBuf,
@@ -390,7 +461,8 @@ void App::drawFrame()
                 defaultSampler.get(),
                 vk::ImageLayout::eShaderReadOnlyOptimal,
                 etna::Image::ViewParams{0, vk::RemainingMipLevels, 0, 6, std::nullopt, vk::ImageViewType::eCube}
-              )}
+              )},
+            etna::Binding{3, textureImage.genBinding(textureSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)}
           });
 
         etna::RenderTargetState renderTargets(
@@ -410,6 +482,15 @@ void App::drawFrame()
         etna::set_state(
           currentCmdBuf,
           proceduralImage.get(),
+          vk::PipelineStageFlagBits2::eFragmentShader,
+          vk::AccessFlagBits2::eShaderSampledRead,
+          vk::ImageLayout::eShaderReadOnlyOptimal,
+          vk::ImageAspectFlagBits::eColor
+        );
+
+        etna::set_state(
+          currentCmdBuf,
+          textureImage.get(),
           vk::PipelineStageFlagBits2::eFragmentShader,
           vk::AccessFlagBits2::eShaderSampledRead,
           vk::ImageLayout::eShaderReadOnlyOptimal,
