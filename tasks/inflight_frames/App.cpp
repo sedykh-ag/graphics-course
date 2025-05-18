@@ -2,6 +2,8 @@
 #include <cassert>
 #include <optional>
 #include <string>
+#include <chrono>
+#include <thread>
 
 #include "App.hpp"
 #include "etna/BlockingTransferHelper.hpp"
@@ -12,6 +14,8 @@
 #include <etna/Etna.hpp>
 #include <etna/GlobalContext.hpp>
 #include <etna/PipelineManager.hpp>
+#include <etna/Profiling.hpp>
+#include <tracy/Tracy.hpp>
 
 #include "etna/Sampler.hpp"
 #include "spdlog/spdlog.h"
@@ -19,7 +23,7 @@
 
 App::App()
   : resolution{1280, 720}
-  , useVsync{true}
+  , useVsync{false}
 {
   // First, we need to initialize Vulkan, which is not trivial because
   // extensions are required for just about anything.
@@ -47,7 +51,7 @@ App::App()
       .deviceExtensions = deviceExtensions,
       // Replace with an index if etna detects your preferred GPU incorrectly
       .physicalDeviceIndexOverride = {},
-      .numFramesInFlight = 1,
+      .numFramesInFlight = 3,
     });
   }
 
@@ -105,7 +109,11 @@ void App::run()
 
     update();
 
-    drawFrame();
+    {
+      ZoneScopedN("drawFrame");
+      drawFrame();
+      FrameMark;
+    }
   }
 
   // We need to wait for the GPU to execute the last frame before destroying
@@ -124,6 +132,8 @@ void App::update()
 
 void App::processInput()
 {
+  ZoneScoped;
+
   // keyboard
   if (osWindow->keyboard[KeyboardKey::kEscape] == ButtonState::Falling)
     osWindow->askToClose();
@@ -403,11 +413,19 @@ void App::drawFrame()
 
     ETNA_CHECK_VK_RESULT(currentCmdBuf.begin(vk::CommandBufferBeginInfo{}));
     {
+      ETNA_PROFILE_GPU(currentCmdBuf, renderFrame);
 
       etna::flush_barriers(currentCmdBuf);
 
+      {
+        ZoneScopedN("sleep");
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+      }
+
       // procedural shader
       {
+        ETNA_PROFILE_GPU(currentCmdBuf, procedural_shader);
+
         auto toyGraphicsProceduralInfo = etna::get_shader_program("toy_graphics_procedural");
 
         auto set = etna::create_descriptor_set(
@@ -447,6 +465,8 @@ void App::drawFrame()
 
       // main shader
       {
+        ETNA_PROFILE_GPU(currentCmdBuf, main_shader);
+
         auto toyGraphicsMainInfo = etna::get_shader_program("toy_graphics_main");
 
         auto set = etna::create_descriptor_set(
@@ -524,6 +544,8 @@ void App::drawFrame()
         vk::ImageAspectFlagBits::eColor);
       // And of course flush the layout transition.
       etna::flush_barriers(currentCmdBuf);
+
+      ETNA_READ_BACK_GPU_PROFILING(currentCmdBuf);
     }
     ETNA_CHECK_VK_RESULT(currentCmdBuf.end());
 

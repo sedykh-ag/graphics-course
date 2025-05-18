@@ -16,9 +16,9 @@ layout (location = 0) out vec4 fragColor;
 
 /* ===== SHADERTOY BEGIN ===== */
 
-const int MAXSTEP = 500;
+const int MAXSTEP = 500000;
 const float MAXDIST = 200.0;
-const float TOL = 0.001;
+const float TOL = 0.0000002;
 const float PI = 3.1415;
 
 vec3 getTriplanarWeights ( in vec3 n )
