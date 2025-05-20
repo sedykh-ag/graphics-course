@@ -24,6 +24,8 @@
 App::App()
   : resolution{1280, 720}
   , useVsync{false}
+  , framesInFlight{3}
+  , uniformBufferObjects{framesInFlight}
 {
   // First, we need to initialize Vulkan, which is not trivial because
   // extensions are required for just about anything.
@@ -45,13 +47,13 @@ App::App()
     // Etna does all of the Vulkan initialization heavy lifting.
     // You can skip figuring out how it works for now.
     etna::initialize(etna::InitParams{
-      .applicationName = "Local Shadertoy",
+      .applicationName = "Frames in Flight",
       .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
       .instanceExtensions = instanceExtensions,
       .deviceExtensions = deviceExtensions,
       // Replace with an index if etna detects your preferred GPU incorrectly
       .physicalDeviceIndexOverride = {},
-      .numFramesInFlight = 3,
+      .numFramesInFlight = framesInFlight,
     });
   }
 
@@ -127,7 +129,7 @@ void App::update()
   // iMouse is updated in processInput...
   uniformParams.iTime = static_cast<float>(windowing.getTime());
 
-  std::memcpy(uniformBufferObject.data(), &uniformParams, sizeof(UniformParams));
+  std::memcpy(uniformBufferObjects[currentBufferIndex].data(), &uniformParams, sizeof(UniformParams));
 }
 
 void App::processInput()
@@ -200,14 +202,17 @@ void App::prepareResources()
     .name = "default_sampler"
   });
 
-  uniformBufferObject = ctx.createBuffer(etna::Buffer::CreateInfo{
-    .size = sizeof(UniformParams),
-    .bufferUsage = vk::BufferUsageFlagBits::eUniformBuffer,
-    .memoryUsage = VMA_MEMORY_USAGE_CPU_ONLY,
-    .name = "uniformBufferObject",
-  });
+  for (size_t i = 0; i < uniformBufferObjects.size(); i++)
+  {
+    uniformBufferObjects[i] = ctx.createBuffer(etna::Buffer::CreateInfo{
+      .size = sizeof(UniformParams),
+      .bufferUsage = vk::BufferUsageFlagBits::eUniformBuffer,
+      .memoryUsage = VMA_MEMORY_USAGE_CPU_ONLY,
+      .name = std::format("uniform_buffer_{}", i)
+    });
 
-  uniformBufferObject.map();
+    uniformBufferObjects[i].map();
+  }
 
   // texture
   {
@@ -398,6 +403,7 @@ void App::drawFrame()
 {
   // First, get a command buffer to write GPU commands into.
   auto currentCmdBuf = commandManager->acquireNext();
+  currentBufferIndex = (currentBufferIndex + 1) % framesInFlight;
 
   // Next, tell Etna that we are going to start processing the next frame.
   etna::begin_frame();
@@ -432,7 +438,7 @@ void App::drawFrame()
           toyGraphicsProceduralInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
           {
-            etna::Binding{0, uniformBufferObject.genBinding()}
+            etna::Binding{0, uniformBufferObjects[currentBufferIndex].genBinding()}
           });
 
         etna::RenderTargetState renderTargets(
@@ -473,7 +479,7 @@ void App::drawFrame()
           toyGraphicsMainInfo.getDescriptorLayoutId(0),
           currentCmdBuf,
           {
-            etna::Binding{0, uniformBufferObject.genBinding()},
+            etna::Binding{0, uniformBufferObjects[currentBufferIndex].genBinding()},
             etna::Binding{1, proceduralImage.genBinding(defaultSampler.get(), vk::ImageLayout::eShaderReadOnlyOptimal)},
             etna::Binding{
               2,

@@ -6,6 +6,7 @@
 #include <etna/Image.hpp>
 #include <etna/Sampler.hpp>
 
+#include "etna/Buffer.hpp"
 #include "etna/GraphicsPipeline.hpp"
 #include "wsi/OsWindowingManager.hpp"
 
@@ -44,6 +45,8 @@ private:
   etna::Image textureImage;
   uint32_t textureMipLevels = 1;
 
+  uint32_t framesInFlight = 3;
+
   etna::Image skyboxImage;
 
   etna::Sampler defaultSampler;
@@ -53,6 +56,9 @@ private:
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;
 
   etna::Buffer uniformBufferObject;
+  size_t currentBufferIndex = 0;
+
+  std::vector<etna::Buffer> uniformBufferObjects;
   UniformParams uniformParams{
     .iTime = 0.0f,
     .iResolution = {0, 0},
