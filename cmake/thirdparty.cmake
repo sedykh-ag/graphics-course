@@ -43,7 +43,7 @@ CPMAddPackage("gh:g-truc/glm#master")
 CPMAddPackage(
   NAME tinygltf
   GITHUB_REPOSITORY syoyo/tinygltf
-  GIT_TAG v2.9.2
+  GIT_TAG v2.9.6
   OPTIONS
     "TINYGLTF_HEADER_ONLY OFF"
     "TINYGLTF_BUILD_LOADER_EXAMPLE OFF"
@@ -53,8 +53,7 @@ CPMAddPackage(
 # etna -- our wrapper around Vulkan to make life easier
 CPMAddPackage(
   NAME etna
-  GITHUB_REPOSITORY AlexandrShcherbakov/etna
-  VERSION 1.9.0
+  SOURCE_DIR "${PROJECT_SOURCE_DIR}/../etna"
 )
 
 # Type-erased function containers that actually work
